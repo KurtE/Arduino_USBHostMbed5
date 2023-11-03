@@ -644,6 +644,7 @@ USB_TYPE USBHost::resetDevice(USBDeviceConnected * dev)
 bool USBHost::addEndpoint(USBDeviceConnected * dev, uint8_t intf_nb, USBEndpoint * ep)
 {
 
+    USB_DBG("USBHost::addEndpoint(%p %u %p) %p", dev, intf_nb, ep, this);
     if (ep == NULL) {
         return false;
     }
@@ -877,11 +878,15 @@ USB_TYPE USBHost::getConfigurationDescriptor(USBDeviceConnected * dev, uint8_t *
 
     USB_DBG("TOTAL_LENGTH: %d \t NUM_INTERF: %d", total_conf_descr_length, buf[4]);
 
-    return controlRead(  dev,
+    res = controlRead(  dev,
                          USB_DEVICE_TO_HOST | USB_RECIPIENT_DEVICE,
                          GET_DESCRIPTOR,
                          (CONFIGURATION_DESCRIPTOR << 8) | (0),
                          0, buf, total_conf_descr_length);
+    if (res != USB_TYPE_OK) {
+        USB_ERR("controlRead FAILED(%u)", res);
+        return res;
+    }
 }
 
 
@@ -931,6 +936,7 @@ USB_TYPE USBHost::enumerate(USBDeviceConnected * dev, IUSBEnumerator* pEnumerato
         // don't enumerate a device which all interfaces are registered to a specific driver
         int index = findDevice(dev);
 
+        USB_DBG("Enumerate dev: %p index: %d", dev, index);
         if (index == -1) {
             return USB_TYPE_ERROR;
         }
@@ -946,12 +952,20 @@ USB_TYPE USBHost::enumerate(USBDeviceConnected * dev, IUSBEnumerator* pEnumerato
         USB_DBG("Enumerate dev: %p", dev);
 
         // third step: get the whole device descriptor to see vid, pid
-        res = getDeviceDescriptor(dev, data, DEVICE_DESCRIPTOR_LENGTH);
+        uint16_t cb_read;
+        res = getDeviceDescriptor(dev, data, DEVICE_DESCRIPTOR_LENGTH, &cb_read);
 
         if (res != USB_TYPE_OK) {
             USB_DBG("GET DEV DESCR FAILED");
             return res;
         }
+#if (DEBUG > 3)
+        USB_DBG("DEVICE DESCRIPTOR(%u):\r\n", cb_read);
+        for (int i = 0; i < DEVICE_DESCRIPTOR_LENGTH; i++) {
+            printf("%02X ", data[i]);
+        }
+        printf("\r\n\r\n");
+#endif
 
         dev->setClass(data[4]);
         dev->setSubClass(data[5]);

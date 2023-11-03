@@ -178,7 +178,11 @@ USB_TYPE USBEndpoint::queueTransfer()
     }
     ep_queue.get(0);
     MBED_ASSERT(*addr == 0);
+    #ifdef USE_RELEASED_CODE
     transfer_len =   td_current->size <= max_size ? td_current->size : max_size;
+    #else
+    transfer_len =   td_current->size;
+    #endif
     buf_start = (uint8_t *)td_current->currBufPtr;
 
     //Now add this free TD at this end of the queue
@@ -193,6 +197,9 @@ USB_TYPE USBEndpoint::queueTransfer()
     /*  dir /setup is inverted for ST */
     /* token is useful only ctrl endpoint */
     /*  last parameter is ping ? */
+    USB_DBG_TRANSFER("HAL_HCD_HC_SubmitRequest(%p, %u, %u, %u, %u, %p, %u, %u)\n\r", 
+        (HCD_HandleTypeDef *)hced->hhcd, hced->ch_num, dir - 1, type, !setup, (uint8_t *) td_current->currBufPtr, transfer_len, 1);
+
     HAL_HCD_HC_SubmitRequest((HCD_HandleTypeDef *)hced->hhcd, hced->ch_num, dir - 1, type, !setup, (uint8_t *) td_current->currBufPtr, transfer_len, 1);
     HAL_HCD_EnableInt((HCD_HandleTypeDef *)hced->hhcd, hced->ch_num);
 
