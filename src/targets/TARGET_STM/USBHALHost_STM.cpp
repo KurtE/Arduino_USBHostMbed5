@@ -91,6 +91,7 @@ uint32_t HAL_HCD_HC_GetType(HCD_HandleTypeDef *hhcd, uint8_t chnum)
 //  - URB_NOTREADY = a NAK, NYET, or not more than a couple of repeats of some of the errors that will
 //                   become URB_ERROR if they repeat several times in a row
 //
+#define ARC_USB_FULL_SIZE 1
 void HAL_HCD_HC_NotifyURBChange_Callback(HCD_HandleTypeDef *hhcd, uint8_t chnum, HCD_URBStateTypeDef urb_state)
 {
     USBHALHost_Private_t *priv = (USBHALHost_Private_t *)(hhcd->pData);
@@ -101,10 +102,37 @@ void HAL_HCD_HC_NotifyURBChange_Callback(HCD_HandleTypeDef *hhcd, uint8_t chnum,
     uint32_t max_size = HAL_HCD_HC_GetMaxPacket(hhcd, chnum);
     uint32_t type = HAL_HCD_HC_GetType(hhcd, chnum);
     uint32_t dir = HAL_HCD_HC_GetDirection(hhcd, chnum);
+    
+
     uint32_t length;
     if ((addr != 0)) {
         HCTD *td = (HCTD *)addr;
-#ifdef USE_RELEASED_CODE
+
+#if ARC_USB_FULL_SIZE
+
+        if ((type == EP_TYPE_BULK) || (type == EP_TYPE_CTRL)) 
+        {
+          
+          if(urb_state == URB_NOTREADY)
+          {
+            volatile uint32_t transferred = HAL_HCD_HC_GetXferCount(hhcd, chnum);
+
+            if(td->retry == 0)
+            {
+              // Submit the same request again, because the device wasn't ready to accept the last one
+              // we need to be aware of any data that has already been transferred as it wont be again by the look of it.
+              // Also only do this once until if (td->state == USB_TYPE_IDLE) resets it below
+              td->currBufPtr += transferred;
+              td->size -= transferred;
+              td->retry = 1;
+              length = td->size;
+
+              HAL_HCD_HC_SubmitRequest(hhcd, chnum, dir, type, !td->setup, (uint8_t *) td->currBufPtr, length, 0);
+              HAL_HCD_EnableInt(hhcd, chnum);
+            }
+          }
+        }
+#else
         if ((type == EP_TYPE_BULK) || (type == EP_TYPE_CTRL)) {
             switch (urb_state) {
                 case URB_DONE:
@@ -131,6 +159,8 @@ void HAL_HCD_HC_NotifyURBChange_Callback(HCD_HandleTypeDef *hhcd, uint8_t chnum,
                         HAL_HCD_HC_SubmitRequest(hhcd, chnum, dir, type, !td->setup, (uint8_t *) td->currBufPtr, length, 0);
                         HAL_HCD_EnableInt(hhcd, chnum);
                         return;
+
+                        return;
 #if defined(MAX_NOTREADY_RETRY)
                     } else {
                         // MAX_NOTREADY_RETRY reached, so stop trying to resend and instead wait for a timeout at a higher layer
@@ -139,8 +169,7 @@ void HAL_HCD_HC_NotifyURBChange_Callback(HCD_HandleTypeDef *hhcd, uint8_t chnum,
                     break;
             }
         }
-#endif // USE_RELEASED_CODE
-
+#endif
         if ((type == EP_TYPE_INTR)) {
             /*  reply a packet of length NULL, this will be analyze in call back
              *  for mouse or hub */
@@ -161,6 +190,9 @@ void HAL_HCD_HC_NotifyURBChange_Callback(HCD_HandleTypeDef *hhcd, uint8_t chnum,
             }
         }
         if (td->state == USB_TYPE_IDLE) {
+#if ARC_USB_FULL_SIZE
+            td->retry = 0;
+#endif
             td->currBufPtr += HAL_HCD_HC_GetXferCount(hhcd, chnum);
             (obj->*func)(addr);
         }
