@@ -92,6 +92,119 @@ uint32_t HAL_HCD_HC_GetType(HCD_HandleTypeDef *hhcd, uint8_t chnum)
 //                   become URB_ERROR if they repeat several times in a row
 //
 #define ARC_USB_FULL_SIZE 1
+#if 1
+void HAL_HCD_HC_NotifyURBChange_Callback(HCD_HandleTypeDef *hhcd, uint8_t chnum, HCD_URBStateTypeDef urb_state)
+{
+    USBHALHost_Private_t *priv = (USBHALHost_Private_t *)(hhcd->pData);
+    USBHALHost *obj = priv->inst;
+    void (USBHALHost::*func)(volatile uint32_t addr) = priv->transferCompleted;
+
+    uint32_t addr = priv->addr[chnum];
+    uint32_t max_size = HAL_HCD_HC_GetMaxPacket(hhcd, chnum);
+    uint32_t type = HAL_HCD_HC_GetType(hhcd, chnum);
+    uint32_t dir = HAL_HCD_HC_GetDirection(hhcd, chnum);
+    
+
+    uint32_t length;
+    if ((addr != 0)) {
+        HCTD *td = (HCTD *)addr;
+
+#if ARC_USB_FULL_SIZE
+        constexpr uint32_t uRetryCount = 10000/20; // 10 ms (TODO: should be done with timer, investigate)
+        if ((type == EP_TYPE_BULK) || (type == EP_TYPE_CTRL)) 
+        {
+          td->retry++;
+
+          if(urb_state == URB_NOTREADY)
+          {
+            volatile uint32_t transferred = HAL_HCD_HC_GetXferCount(hhcd, chnum);
+
+            if((td->retry > uRetryCount) || (td->size==0))
+            {
+              // Submit the same request again, because the device wasn't ready to accept the last one
+              // we need to be aware of any data that has already been transferred as it wont be again by the look of it.
+              // Also only do this once until if (td->state == USB_TYPE_IDLE) resets it below
+              td->currBufPtr += transferred;
+              td->size -= transferred;
+              td->retry = 0;
+              length = td->size;
+
+              HAL_HCD_HC_SubmitRequest(hhcd, chnum, dir, type, !td->setup, (uint8_t *) td->currBufPtr, length, 0);
+              HAL_HCD_EnableInt(hhcd, chnum);
+            }
+          }
+        }
+#else
+        if ((type == EP_TYPE_BULK) || (type == EP_TYPE_CTRL)) {
+            switch (urb_state) {
+                case URB_DONE:
+#if defined(MAX_NOTREADY_RETRY)
+                    td->retry = 0;
+#endif
+                    if (td->size >  max_size) {
+                        /*  enqueue  another request */
+                        td->currBufPtr += max_size;
+                        td->size -= max_size;
+                        length = td->size <= max_size ? td->size : max_size;
+                        HAL_HCD_HC_SubmitRequest(hhcd, chnum, dir, type, !td->setup, (uint8_t *) td->currBufPtr, length, 0);
+                        HAL_HCD_EnableInt(hhcd, chnum);
+                        return;
+                    }
+                    break;
+                case  URB_NOTREADY:
+#if defined(MAX_NOTREADY_RETRY)
+                    if (td->retry < MAX_NOTREADY_RETRY) {
+                        td->retry++;
+#endif
+                        // Submit the same request again, because the device wasn't ready to accept the last one
+                        length = td->size <= max_size ? td->size : max_size;
+                        HAL_HCD_HC_SubmitRequest(hhcd, chnum, dir, type, !td->setup, (uint8_t *) td->currBufPtr, length, 0);
+                        HAL_HCD_EnableInt(hhcd, chnum);
+                        return;
+
+                        return;
+#if defined(MAX_NOTREADY_RETRY)
+                    } else {
+                        // MAX_NOTREADY_RETRY reached, so stop trying to resend and instead wait for a timeout at a higher layer
+                    }
+#endif
+                    break;
+            }
+        }
+#endif
+        if ((type == EP_TYPE_INTR)) {
+            /*  reply a packet of length NULL, this will be analyze in call back
+             *  for mouse or hub */
+            td->state = USB_TYPE_IDLE ;
+            HAL_HCD_DisableInt(hhcd, chnum);
+
+        } else {
+            if (urb_state == URB_DONE) {
+                td->state = USB_TYPE_IDLE;
+            }
+            else if (urb_state == URB_ERROR) {
+                // While USB_TYPE_ERROR in the endpoint state is used to activate error recovery, this value is actually never used.
+                // Going here will lead to a timeout at a higher layer, because of ep_queue.get() timeout, which will activate error
+                // recovery indirectly.
+                td->state = USB_TYPE_ERROR;
+            } else {
+                td->state = USB_TYPE_PROCESSING;
+            }
+        }
+        if (td->state == USB_TYPE_IDLE) {
+#if ARC_USB_FULL_SIZE
+            td->retry = 0;
+#endif
+            td->currBufPtr += HAL_HCD_HC_GetXferCount(hhcd, chnum);
+            (obj->*func)(addr);
+        }
+    } else {
+        if (urb_state != 0) {
+            //USB_DBG_EVENT("spurious %d %d", chnum, urb_state);
+        }
+    }
+}
+#else
 void HAL_HCD_HC_NotifyURBChange_Callback(HCD_HandleTypeDef *hhcd, uint8_t chnum, HCD_URBStateTypeDef urb_state)
 {
     USBHALHost_Private_t *priv = (USBHALHost_Private_t *)(hhcd->pData);
@@ -202,6 +315,7 @@ void HAL_HCD_HC_NotifyURBChange_Callback(HCD_HandleTypeDef *hhcd, uint8_t chnum,
         }
     }
 }
+#endif
 
 USBHALHost *USBHALHost::instHost;
 
