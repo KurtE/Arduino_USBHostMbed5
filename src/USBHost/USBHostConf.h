@@ -158,4 +158,5 @@
 */
 #define USB_THREAD_STACK            (256*4 + 2*256*4)
 
+#define ARC_USB_FULL_SIZE 1
 #endif

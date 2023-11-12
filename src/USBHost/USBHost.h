@@ -326,10 +326,11 @@ private:
     * @param dir USBEndpoint direction (no meaning for CONTROL_ENDPOINT)
     * @param size USBEndpoint max packet size
     * @param addr USBEndpoint address
+    * @param speed USBEndpoint low speed?
     *
     * @returns pointer on the USBEndpoint created
     */
-    USBEndpoint * newEndpoint(ENDPOINT_TYPE type, ENDPOINT_DIRECTION dir, uint32_t size, uint8_t addr) ;
+    USBEndpoint * newEndpoint(ENDPOINT_TYPE type, ENDPOINT_DIRECTION dir, uint32_t size, uint8_t addr, bool speed=false) ;
 
     /**
     * Request the device descriptor

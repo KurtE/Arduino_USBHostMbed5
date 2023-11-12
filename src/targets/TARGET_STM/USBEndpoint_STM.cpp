@@ -81,13 +81,14 @@ void USBEndpoint::setSize(uint32_t size)
 
 void USBEndpoint::setDeviceAddress(uint8_t addr)
 {
-    HCD_HandleTypeDef *hhcd;
-    uint8_t hcd_speed = HCD_SPEED_FULL;
-    /* fix me : small speed device with hub not supported
-    if (this->speed) hcd_speed = HCD_SPEED_LOW; */
-    if (this->speed) {
-        USB_WARN("small speed device on hub not supported");
-    }
+    //HCD_HandleTypeDef *hhcd;
+    uint8_t hcd_speed = this->speed? HCD_DEVICE_SPEED_LOW : HCD_SPEED_FULL;
+    //if (this->speed) {
+    //    USB_WARN("low speed device on hub not supported");
+    //}
+    USB_DBG("%p %u %u %u %u\n", this, this->speed, HCD_SPEED_LOW, HCD_DEVICE_SPEED_LOW, hcd_speed);
+    USB_DBG("(SA)HAL_HCD_HC_Init(%p %d %d %d %d %d %lu)\n", (HCD_HandleTypeDef *)hced->hhcd, hced->ch_num, address, addr, 
+        hcd_speed,  type, size);
     HAL_HCD_HC_Init((HCD_HandleTypeDef *)hced->hhcd, hced->ch_num, address, addr, hcd_speed,  type, size);;
     this->device_address = addr;
 
@@ -95,6 +96,7 @@ void USBEndpoint::setDeviceAddress(uint8_t addr)
 
 void USBEndpoint::setSpeed(uint8_t speed)
 {
+    USB_DBG("** USBEndpoint::setSpeed(%p, %u) **\n", this, speed);
     this->speed = speed;
 }
 
@@ -143,14 +145,15 @@ void USBEndpoint::setState(USB_TYPE st)
 
         HAL_HCD_DisableInt((HCD_HandleTypeDef *)hced->hhcd, hced->ch_num);
         uint8_t hcd_speed = HCD_SPEED_FULL;
-        /* small speed device with hub not supported
-           if (this->speed) hcd_speed = HCD_SPEED_LOW;*/
+        if (this->speed) hcd_speed = HCD_DEVICE_SPEED_LOW;
 
         // If the device seems to be gone, there is no use trying to enable the channel again
         if (nullptr != dev)
         {
             // Notice that dev->getAddress() must be used instead of device_address, because the latter will contain
             // incorrect values in certain cases
+            USB_DBG("(SS)HAL_HCD_HC_Init(%p %d %d %d %d %d %d)\n", (HCD_HandleTypeDef *)hced->hhcd, hced->ch_num, address, dev->getAddress(), 
+                hcd_speed,  type, size);
             HAL_HCD_HC_Init((HCD_HandleTypeDef *)hced->hhcd, hced->ch_num, address, dev->getAddress(), hcd_speed,  type, size);
             // HAL_HCD_HC_Init() doesn't fully enable the channel after disable above, so we do it here -->
             USBx_HC(hced->ch_num)->HCCHAR &= ~USB_OTG_HCCHAR_CHDIS;
@@ -179,11 +182,10 @@ USB_TYPE USBEndpoint::queueTransfer()
     ep_queue.get(0);
     MBED_ASSERT(*addr == 0);
 #if ARC_USB_FULL_SIZE
-	transfer_len =   td_current->size;
+    transfer_len =   td_current->size;
 #else
     transfer_len =   td_current->size <= max_size ? td_current->size : max_size;
 #endif
-
     buf_start = (uint8_t *)td_current->currBufPtr;
 
     //Now add this free TD at this end of the queue
